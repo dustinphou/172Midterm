@@ -3,9 +3,27 @@ var request = require('request');
 var repl = require('repl');
 var uu = require('underscore');
 
+function get_exchange_rate(symb) //gets exchange rate, symbol is checked beforehand so should always be valid
+{
+
+	symb = symb.replace(/\n$/, ''); //chops off the extra \n repl adds
+	var buy = symb + '_to_btc'; 	//create two strings, one to find buy rate and one for sell rate
+	var sell = 'btc_to_' + symb;
+	request('https://api.coinbase.com/v1/currencies/exchange_rates', function (error, response, body){
+		if (!error && response.statusCode == 200) {
+			var exchange_rates = JSON.parse(body);
+			return [exchange_rates[buy], exchange_rates[sell]];
+		}
+		else
+		{
+			console.log("There was an error with the request.");
+		}
+	})
+}
+
 function currency_validation(symb)
 {
-	symb = symb.replace(/\n$/, '');
+	symb = symb.replace(/\n$/, ''); //chops off the extra \n repl adds
 	request('https://api.coinbase.com/v1/currencies', function (error, response, body){
 		if (!error && response.statusCode == 200) {
 			var currencies = JSON.parse(body);
@@ -26,4 +44,4 @@ function currency_validation(symb)
 	})
 }
 
-repl.start({eval: currency_validation});
+repl.start({eval: get_exchange_rate});
