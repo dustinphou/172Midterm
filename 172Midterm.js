@@ -2,6 +2,7 @@ var csv = require('csv')
 var request = require('request')
 var repl = require('repl')
 var uu = require('underscore')
+var order_buffer = []
 
 /*
 Take user input
@@ -10,60 +11,99 @@ Take user input
  |
  ->get exchange rate
   |
-  ->buy
+  ->queue buy
   |
-  ->sell
+  ->queue sell
+->save orders
 */
 
-function currency_validation(action, amount, symb)
+function entry(cmd)
 {
-	//symb = symb.replace(/\n$/, '') //chops off the extra \n repl adds
-	var SYMB = symb.toUpperCase()
-	return request('https://api.coinbase.com/v1/currencies', function (error, response, body){
-		if (!error && response.statusCode == 200) {
-			var currencies = JSON.parse(body)
-			currencies = uu.flatten(currencies)
-			if(uu.find(currencies, function (curr) {return curr == SYMB}))
-			{
-			 	console.log("Currency valid.")
-			 	transaction(action, amount, symb)
-			} 
-			else
-			{
-				console.log("No known exchange rate for BTC/" + SYMB + ". Order failed.")				
-			}
+	cmd = cmd.replace(/\n$/, '') //chops off /n added from REPL
+	var args = cmd.split(" ") // [action, amount, symb]
+	if(args[0] == "ORDERS")
+	{
+		save_orders();
+	}
+	else
+	{
+		validation(args[0], args[1], args[2])
+	}
+}
+
+function validation(action, amount, symb)
+{
+	var order = {
+		"command": action,
+		"amount": amount,
+		"currency": symb
+	}
+	console.log(order)
+	if(!isNaN(amount) && amount > 0) //checks if a valid amount was specified
+	{
+		if(symb !== undefined)
+		{
+			var SYMB = symb.toUpperCase()
+			request('https://api.coinbase.com/v1/currencies', function (error, response, body){
+				if (!error && response.statusCode == 200) {
+					var currencies = JSON.parse(body)
+					currencies = uu.flatten(currencies)
+					if(uu.find(currencies, function (curr) {return curr == SYMB}))
+					{
+					 	console.log("Currency valid.")
+					 	transaction(action, amount, symb)
+					} 
+					else
+					{
+						console.log("No known exchange rate for BTC/" + SYMB + ". Order failed.")				
+					}
+				}
+				else
+				{
+					console.log("There was an error with the request.")
+				}
+			})
 		}
 		else
 		{
-			console.log("There was an error with the request.")
+			if(action == "BUY") 
+			{
+				console.log("Order to BUY " + amount + " BTC queued.")
+				order_buffer.push(order)
+			}
+			else if (action == "SELL") 
+			{
+				console.log("Order to SELL " + amount + " BTC queued.")
+				order_buffer.push(order)
+			}
+			else console.log("Invalid action.")
 		}
-	})
+	}
+	else
+	{
+		console.log("No amount specified.")
+	}
 }
 
-function transaction(action, amount, symb) //gets exchange rate, symbol is checked beforehand so should always be valid
+function transaction(action, amount, symb)
 {
-
-	//symb = symb.replace(/\n$/, '') //chops off the extra \n repl adds
-	var buy = symb + '_to_btc' 	//create two strings, one to find buy rate and one for sell rate
-	var sell = 'btc_to_' + symb
+	var buy = 'btc_to_' + symb 	//create two strings, one to find buy rate and one for sell rate
+	var sell = symb + '_to_btc'
 	request('https://api.coinbase.com/v1/currencies/exchange_rates', function (error, response, body){
 		if (!error && response.statusCode == 200) {
 			var exchange_rates = JSON.parse(body)
-			// var rates_for_symb = {buy:exchange_rates[buy], sell:exchange_rates[sell]}
-			// console.log(rates_for_symb)
 			if(action == 'BUY')
 			{
-				console.log("BUY " + amount +" BTC for " + (exchange_rates[buy]*amount) + ' ' +symb.toUpperCase())
+				console.log("order to BUY " + amount + " worth of BTC queued @ " + exchange_rates[buy] + ' BTC/' + symb.toUpperCase() + ' (' + (exchange_rates[buy]*amount) + ' BTC)')
 			}
 			else if(action == 'SELL')
 			{
-				console.log("SELL " + amount +" BTC for " + (exchange_rates[sell]*amount) + ' ' +symb.toUpperCase())
+				console.log("order to SELL " + amount + " worth of BTC queued @ " + exchange_rates[sell] + ' ' + symb.toUpperCase() + '/BTC' + ' (' + (exchange_rates[sell]*amount) + ' BTC)')
 			}
 			else
 			{
 				console.log("Invalid action.")
 			}
-
 		}
 		else
 		{
@@ -72,13 +112,9 @@ function transaction(action, amount, symb) //gets exchange rate, symbol is check
 	})
 }
 
+function save_orders()
+{
+	console.log(order_buffer)
+}
 
-var args = process.argv.slice(2)
-console.log(args)
-currency_validation(args[0], args[1], args[2])
-// repl.start({prompt: "coinbase>", eval:function(cmd, context, filename, callback) {
-//         if (cmd === empty) return callback()
-//         var result = eval(cmd)
-//     	console.log(result)
-//         callback(null, result)
-//       }})
+repl.start({prompt: "coinbase>", eval:entry})
