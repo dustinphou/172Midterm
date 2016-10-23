@@ -4,10 +4,10 @@ var repl = require('repl')
 var uu = require('underscore')
 var path = require('path')
 var fs = require('fs')
-var orderBuffer = []
+var orderBuffer = []	//array that stores transactions to be placed in orders.csv later, each order is a string that is later parsed
 var filePath = path.join(__dirname, 'orders.csv')
 
-var weekday = new Array(7);
+var weekday = new Array(7); //two arrays used for timestamps
 weekday[0] = "Sun";
 weekday[1] = "Mon";
 weekday[2] = "Tue";
@@ -30,36 +30,26 @@ month[9] = "Oct";
 month[10] = "Nov";
 month[11] = "Dec";
 
-
-
-/*
-Take user input
-|
-->validate currency
- |
- ->get exchange rate
-  |
-  ->queue buy
-  |
-  ->queue sell
-->save orders
-*/
-
-function entry(cmd) //assumptions: all inputs will be given in ALL CAPS
+//assumptions: all inputs will be given in ALL CAPS
+function entry(cmd) //an entry point for the eval field to be used by REPL
 {
-	cmd = cmd.replace(/\n$/, '') //chops off /n added from REPL
-	var args = cmd.split(' ') // [action, amount, symb]
+	cmd = cmd.replace(/\n$/, '') 	//chops off /n added from REPL
+	var args = cmd.split(' ') 		// [action, amount, symb]
 	if(args[0] == 'ORDERS')
 	{
 		save_orders();
 	}
-	else
+	else if(args[0] == 'BUY' || args[0] == 'SELL')
 	{
 		validation(args[0], args[1], args[2], cmd)
 	}
+	else
+	{
+		console.log("Commands available:\nBUY <amount> [currency]\nSELL <amount> [currency]\nORDERS")
+	}
 }
 
-function validation(action, amount, symb, order)
+function validation(action, amount, symb, order)	//first validates whether or not currency exists; if not, do nothing
 {
 	if(!isNaN(amount) && amount > 0) //checks if a valid amount was specified
 	{
@@ -68,8 +58,8 @@ function validation(action, amount, symb, order)
 			request('https://api.coinbase.com/v1/currencies', function (error, response, body){
 				if (!error && response.statusCode == 200) {
 					var currencies = JSON.parse(body)
-					currencies = uu.flatten(currencies)
-					if(uu.find(currencies, function (curr) {return curr == symb}))
+					currencies = uu.flatten(currencies)		//combines all objects since only thing that needs to be checked is if a certain string exists
+					if(uu.find(currencies, function (curr) {return curr == symb}))	//checks entire list sent back from coinbase for matching currency, takes a long time if value is low on list
 					{
 					 	console.log('Currency valid.')
 					 	transaction(action, amount, symb, order)
@@ -85,20 +75,19 @@ function validation(action, amount, symb, order)
 				}
 			})
 		}
-		else
+		else	//in the case that a currency type was not provided, assume user wants to make BTC transactions
 		{
 			order = order + ' BTC'
 			if(action == 'BUY') 
 			{
 				console.log('Order to BUY ' + amount + ' BTC queued.')
-				orderBuffer.push(append_date_time(order) + ' : undefined')
+				orderBuffer.push(append_date_time(order) + ' : undefined')	//buy and sell values for this command were vague, just left as undefined
 			}
 			else if (action == 'SELL') 
 			{
 				console.log('Order to SELL ' + amount + ' BTC queued.')
 				orderBuffer.push(append_date_time(order) + ' : undefined')
 			}
-			else console.log('Invalid action.')
 		}
 	}
 	else
@@ -107,10 +96,10 @@ function validation(action, amount, symb, order)
 	}
 }
 
-function transaction(action, amount, symb, order)
+function transaction(action, amount, symb, order)	//retrieves exchange rates for type of currency provided
 {
-	var low_symb = symb.toLowerCase()
-	var buy = 'btc_to_' + low_symb 	//create two strings, one to find buy rate and one for sell rate
+	var low_symb = symb.toLowerCase()	//the object received from coinbase uses lower case
+	var buy = 'btc_to_' + low_symb 		//create two strings, one to find buy rate and one for sell rate
 	var sell = low_symb + '_to_btc'
 	request('https://api.coinbase.com/v1/currencies/exchange_rates', function (error, response, body){
 		if (!error && response.statusCode == 200) {
@@ -125,11 +114,6 @@ function transaction(action, amount, symb, order)
 				console.log('order to SELL ' + amount + ' worth of ' + symb + ' queued @ ' + exchange_rates[sell] + ' ' + symb.toUpperCase() + '/BTC' + ' (' + (exchange_rates[sell]*amount) + ' BTC)')
 				orderBuffer.push(append_date_time(order) + ' : ' + exchange_rates[sell])
 			}
-			else
-			{
-				console.log('Invalid action.')
-			}
-
 		}
 		else
 		{
@@ -138,7 +122,7 @@ function transaction(action, amount, symb, order)
 	})
 }
 
-function append_date_time(order)
+function append_date_time(order)	//generates the date string that is appended to each order, couldn't find a module to make this not extremely long
 {
 	//Wed Oct 05 2016 22:09:40 GMT+0000 (UTC) : BUY 10 : UNFILLED
 	//Weekday Month Day Year Time Timezone : order : UNFILLED
@@ -147,24 +131,26 @@ function append_date_time(order)
 	return order
 }
 
-function save_orders()
+function save_orders()	//parses order strings and pipes them to write stream via fast-csv to generate csv file
 {
-	var csvBuffer = uu.map(orderBuffer, function (order) {
-		var splitorder = order.split(' : ')
+	var csvBuffer = uu.map(orderBuffer, function (order) {	//creates a new array of order objects with each part of the order string properly tied to an attribute	
+		var splitorder = order.split(' : ')					//splits each order up int sub-arrays that can be easily addressed to provide values to the obj sent to csv
 		var splitcmd = splitorder[1].split(' ')
 		var csvorder = {
-		"timestamp":splitorder[0],
-		"command":splitcmd[0],
-		"amount":splitcmd[1],
-		"currency":splitcmd[2],
-		"exchange rate to BTC": splitorder[2]
+			"timestamp":splitorder[0],
+			"command":splitcmd[0],
+			"amount":splitcmd[1],
+			"currency":splitcmd[2],
+			"exchange rate to BTC": splitorder[2]
 		}
 		return csvorder
 	})
-
+console.log('	===	CURRENT ORDERS ===')
+uu.each(orderBuffer, function(order) {
+	console.log(order + ' : UNFILLED') //left exchange rate in the string printed to console since it wasn't used for anything else
+})
 var writableStream = fs.createWriteStream(filePath)
 csv.write(csvBuffer, {headers:true}).pipe(writableStream)
-
 }
 
 repl.start({prompt: 'coinbase>', eval:entry})
