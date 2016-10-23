@@ -1,0 +1,4 @@
+timestamp,action,amount,currency,exchange rate to BTC
+Sun Oct 23 2016 2:28:0,BUY,10,USD,653.13
+Sun Oct 23 2016 2:28:2,BUY,30,USD,653.13
+Sun Oct 23 2016 2:28:42,BUY,10,BTC,undefined
